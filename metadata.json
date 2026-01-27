@@ -1,0 +1,7 @@
+{
+  "name": "ChromaBeat",
+  "description": "Transform your audio into stunning visual experiences with AI-generated lyrics, background art, and dynamic beat-synced visualizers.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
