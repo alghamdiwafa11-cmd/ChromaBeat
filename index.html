@@ -15,18 +15,16 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=Space+Grotesk:wght@300;700&display=swap" rel="stylesheet">
     
-    <!-- PayPal SDK Integration -->
+    <!-- PayPal SDK -->
     <script src="https://www.paypal.com/sdk/js?client-id=AcHOUYdrztf_ekV7ZQDHH26lwqrOdo34L-r6hHsIzagGTtxqXIESroaRuu4tMKMZx-4ge-sVAAF_y3R1&currency=USD" async></script>
 
     <script>
-      // Safe initialization of process.env for browser environments
-      window.process = window.process || { env: {} };
-      window.process.env = window.process.env || {};
-      
-      window.onerror = function(message, source, lineno, colno, error) {
-        console.warn("Caught Error:", { message, source, lineno, colno, error });
-        return false;
-      };
+      // Initialize a safe process.env if it doesn't exist
+      if (typeof window.process === 'undefined') {
+        window.process = { env: {} };
+      } else if (typeof window.process.env === 'undefined') {
+        window.process.env = {};
+      }
     </script>
 
     <style>
@@ -35,6 +33,7 @@
         background-color: #050505;
         color: #ffffff;
         margin: 0;
+        overflow-x: hidden;
       }
       .font-heading { font-family: 'Space Grotesk', sans-serif; }
       .glass {
@@ -42,6 +41,9 @@
         backdrop-filter: blur(16px);
         border: 1px solid rgba(255, 255, 255, 0.08);
       }
+      ::-webkit-scrollbar { width: 8px; }
+      ::-webkit-scrollbar-track { background: #050505; }
+      ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
     </style>
 
     <script type="importmap">
