@@ -1,8 +1,7 @@
 
-import React, { useState } from 'react';
-// Added Loader2 to the imports from lucide-react
-import { Check, X, CreditCard, ShieldCheck, Zap, Lock, Info, AlertCircle, Loader2 } from 'lucide-react';
-import { PRICING_CONFIG } from '../constants';
+import React, { useState, useEffect, useRef } from 'react';
+import { Check, X, CreditCard, ShieldCheck, Zap, Lock, AlertCircle, Loader2 } from 'lucide-react';
+import { PRICING_CONFIG } from '../constants.tsx';
 
 interface SubscriptionModalProps {
   isOpen: boolean;
@@ -14,32 +13,61 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, 
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const paypalContainerRef = useRef<HTMLDivElement>(null);
+  const paypalButtonRendered = useRef(false);
+
+  useEffect(() => {
+    if (isOpen && agreed && paypalContainerRef.current && !paypalButtonRendered.current) {
+      if ((window as any).paypal) {
+        (window as any).paypal.Buttons({
+          createOrder: (data: any, actions: any) => {
+            return actions.order.create({
+              purchase_units: [{
+                description: "ChromaBeat Lifetime Pro Access",
+                amount: {
+                  currency_code: "USD",
+                  value: PRICING_CONFIG.currentPlan.price
+                }
+              }]
+            });
+          },
+          onApprove: async (data: any, actions: any) => {
+            setIsProcessing(true);
+            try {
+              const details = await actions.order.capture();
+              setIsProcessing(false);
+              onSuccess();
+              alert(`Transaction completed by ${details.payer.name.given_name}! Lifetime access unlocked.`);
+            } catch (err) {
+              setError("Capture failed. Please try again.");
+              setIsProcessing(false);
+            }
+          },
+          onError: (err: any) => {
+            console.error(err);
+            setError("PayPal system error. Please ensure you are logged in correctly.");
+          },
+          style: {
+            layout: 'vertical',
+            color:  'gold',
+            shape:  'pill',
+            label:  'paypal'
+          }
+        }).render(paypalContainerRef.current);
+        paypalButtonRendered.current = true;
+      }
+    }
+  }, [isOpen, agreed]);
 
   if (!isOpen) return null;
 
   const plan = PRICING_CONFIG.currentPlan;
 
-  const handlePayment = (method: string) => {
-    if (!agreed) {
-      setError("Please agree to the Terms of Service to continue.");
-      return;
-    }
-    setError(null);
-    setIsProcessing(true);
-    
-    // Mimic actual payment gateway redirection
-    setTimeout(() => {
-        setIsProcessing(false);
-        onSuccess();
-        alert(`Success! Your Lifetime Pro access has been activated via ${method}.`);
-    }, 2000);
-  };
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/95 backdrop-blur-2xl" onClick={onClose} />
       
-      <div className="relative glass w-full max-w-xl rounded-[3.5rem] overflow-hidden border-white/10 shadow-[0_0_150px_rgba(59,130,246,0.2)] animate-in fade-in zoom-in duration-500">
+      <div className="relative glass w-full max-w-xl rounded-[3.5rem] overflow-hidden border-white/10 shadow-[0_0_150px_rgba(59,130,246,0.2)] animate-in fade-in zoom-in duration-500 max-h-[90vh] overflow-y-auto">
         <button onClick={onClose} className="absolute top-10 right-10 text-white/30 hover:text-white transition-colors z-50 p-2">
           <X className="w-6 h-6" />
         </button>
@@ -89,7 +117,10 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, 
                 <input 
                     type="checkbox" 
                     checked={agreed} 
-                    onChange={(e) => setAgreed(e.target.checked)}
+                    onChange={(e) => {
+                      setAgreed(e.target.checked);
+                      if (!e.target.checked) paypalButtonRendered.current = false;
+                    }}
                     className="w-5 h-5 rounded-lg border-white/10 bg-white/5 accent-blue-500 transition-all cursor-pointer"
                 />
               </div>
@@ -98,47 +129,33 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, 
               </span>
             </label>
             {error && (
-              <div className="mt-3 flex items-center gap-2 text-red-500 text-[10px] font-black animate-pulse">
+              <div className="mt-4 flex items-center gap-2 text-red-500 text-[10px] font-black animate-pulse">
                 <AlertCircle className="w-4 h-4" /> {error}
               </div>
             )}
           </div>
 
           <div className="space-y-4">
-            <button 
-              onClick={() => handlePayment('PayPal')}
-              disabled={!agreed || isProcessing}
-              className={`w-full bg-[#ffc439] hover:bg-[#f2ba36] text-[#003087] font-black py-5 rounded-3xl flex items-center justify-center gap-3 transition-all shadow-2xl ${(!agreed || isProcessing) ? 'opacity-30 grayscale cursor-not-allowed' : 'hover:scale-[1.02] active:scale-[0.98]'}`}
-            >
-              {isProcessing ? <Loader2 className="w-6 h-6 animate-spin" /> : (
-                <>
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/PayPal.svg" alt="PayPal" className="h-6" />
-                    <span>Pay with PayPal</span>
-                </>
-              )}
-            </button>
-
-            <div className="grid grid-cols-2 gap-4">
-              <button 
-                onClick={() => handlePayment('Card')}
-                disabled={!agreed || isProcessing}
-                className={`bg-white/5 hover:bg-white/10 border border-white/10 text-white font-black py-5 rounded-3xl flex items-center justify-center gap-3 transition-all ${(!agreed || isProcessing) ? 'opacity-30 cursor-not-allowed' : 'hover:scale-[1.02]'}`}
-              >
-                <CreditCard className="w-5 h-5 text-white/40" /> Credit Card
-              </button>
-              <button 
-                onClick={() => handlePayment('Apple')}
-                disabled={!agreed || isProcessing}
-                className={`bg-white/5 hover:bg-white/10 border border-white/10 text-white font-black py-5 rounded-3xl flex items-center justify-center gap-3 transition-all ${(!agreed || isProcessing) ? 'opacity-30 cursor-not-allowed' : 'hover:scale-[1.02]'}`}
-              >
-                Apple Pay
-              </button>
-            </div>
+            {!agreed ? (
+              <div className="w-full bg-white/5 py-8 rounded-3xl flex flex-col items-center justify-center border border-white/5 border-dashed">
+                 <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">Accept terms to enable checkout</p>
+              </div>
+            ) : (
+              <div className="relative min-h-[150px]">
+                {isProcessing && (
+                  <div className="absolute inset-0 bg-black/50 z-10 flex flex-col items-center justify-center rounded-3xl backdrop-blur-sm">
+                    <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mb-4" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">Validating Payment...</p>
+                  </div>
+                )}
+                <div ref={paypalContainerRef} className="animate-in fade-in duration-700" />
+              </div>
+            )}
           </div>
 
           <div className="mt-10 flex items-center justify-center gap-8 border-t border-white/5 pt-10">
             <span className="flex items-center gap-2 text-[10px] text-white/20 font-black uppercase tracking-[0.2em]"><ShieldCheck className="w-4 h-4" /> Secure SSL</span>
-            <span className="flex items-center gap-2 text-[10px] text-white/20 font-black uppercase tracking-[0.2em]"><Lock className="w-4 h-4" /> Verified</span>
+            <span className="flex items-center gap-2 text-[10px] text-white/20 font-black uppercase tracking-[0.2em]"><Lock className="w-4 h-4" /> PayPal Verified</span>
           </div>
         </div>
       </div>
