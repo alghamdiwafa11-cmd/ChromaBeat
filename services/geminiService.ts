@@ -4,9 +4,10 @@ import { AudioMetadata } from "../types.ts";
 
 export class GeminiService {
   private getAI() {
-    const apiKey = process.env?.API_KEY;
+    // Always fetch fresh from environment to handle the bridge injection
+    const apiKey = (window as any).process?.env?.API_KEY;
     if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
-      throw new Error("API_KEY_MISSING: No valid Google Gemini API key found. Use the 'Connect Engine' button.");
+      throw new Error("API_KEY_MISSING: No valid Google Gemini API key found. Use the 'Link AI Engine' button.");
     }
     return new GoogleGenAI({ apiKey });
   }
@@ -21,9 +22,9 @@ export class GeminiService {
       });
       return result;
     } catch (error: any) {
-      console.error("Gemini API Error:", error);
+      console.error("Gemini API Error Detail:", error);
       if (error.message?.includes("entity was not found") || error.message?.toLowerCase().includes("key")) {
-        throw new Error("API_KEY_INVALID: Your Gemini API key is invalid or lacks billing permissions.");
+        throw new Error("API_KEY_INVALID: Your Gemini API key is missing billing or is restricted.");
       }
       throw error;
     }
@@ -88,7 +89,8 @@ export class GeminiService {
       }
 
       const link = operation.response?.generatedVideos?.[0]?.video?.uri;
-      const res = await fetch(`${link}&key=${process.env?.API_KEY}`);
+      const apiKey = (window as any).process?.env?.API_KEY;
+      const res = await fetch(`${link}&key=${apiKey}`);
       const blob = await res.blob();
       return URL.createObjectURL(blob);
     } catch (e: any) {

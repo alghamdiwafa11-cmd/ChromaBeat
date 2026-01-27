@@ -19,8 +19,15 @@
     <script src="https://www.paypal.com/sdk/js?client-id=AcHOUYdrztf_ekV7ZQDHH26lwqrOdo34L-r6hHsIzagGTtxqXIESroaRuu4tMKMZx-4ge-sVAAF_y3R1&currency=USD" async></script>
 
     <script>
-      // Polyfill process.env to prevent "process is not defined" errors in browser
-      window.process = window.process || { env: {} };
+      // Crucial: Initialize process.env before any modules load
+      window.process = { env: {} };
+      
+      // Global error listener for "Script error" debugging
+      window.onerror = function(message, source, lineno, colno, error) {
+        console.error("Global Error Caught:", { message, source, lineno, colno, error });
+        // Don't alert for every error, but log it clearly
+        return false;
+      };
     </script>
 
     <style>
