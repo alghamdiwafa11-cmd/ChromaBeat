@@ -10,18 +10,31 @@ const App: React.FC = () => {
   const [hasKey, setHasKey] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState(false);
   const [state, setState] = useState<AppState>(() => {
-    const saved = localStorage.getItem('chromabeat_v5_state');
-    const initial = saved ? JSON.parse(saved) : {};
-    return {
-      audioFile: null,
-      audioUrl: null,
-      processing: false,
-      metadata: null,
-      backgroundImage: null,
-      backgroundVideoUrl: null,
-      isPro: initial.isPro || false,
-      videosProduced: initial.videosProduced || 0,
-    };
+    try {
+      const saved = localStorage.getItem('chromabeat_v5_state');
+      const initial = saved ? JSON.parse(saved) : {};
+      return {
+        audioFile: null,
+        audioUrl: null,
+        processing: false,
+        metadata: null,
+        backgroundImage: null,
+        backgroundVideoUrl: null,
+        isPro: initial.isPro || false,
+        videosProduced: initial.videosProduced || 0,
+      };
+    } catch (e) {
+      return {
+        audioFile: null,
+        audioUrl: null,
+        processing: false,
+        metadata: null,
+        backgroundImage: null,
+        backgroundVideoUrl: null,
+        isPro: false,
+        videosProduced: 0,
+      };
+    }
   });
 
   const [error, setError] = useState<string | null>(null);
@@ -29,8 +42,19 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const checkKey = async () => {
-      const isEnvSet = !!process.env.API_KEY && process.env.API_KEY !== 'undefined' && process.env.API_KEY.length > 5;
-      const isSelected = (window as any).aistudio?.hasSelectedApiKey ? await (window as any).aistudio.hasSelectedApiKey() : false;
+      // Safely check for API key with optional chaining to prevent "Script error"
+      const envKey = process.env?.API_KEY;
+      const isEnvSet = !!envKey && envKey !== 'undefined' && envKey.length > 5;
+      
+      let isSelected = false;
+      try {
+        if ((window as any).aistudio?.hasSelectedApiKey) {
+          isSelected = await (window as any).aistudio.hasSelectedApiKey();
+        }
+      } catch (e) {
+        console.warn("AI Studio bridge check failed", e);
+      }
+      
       setHasKey(isEnvSet || isSelected);
     };
     checkKey();
@@ -44,22 +68,37 @@ const App: React.FC = () => {
   }, [state.isPro, state.videosProduced]);
 
   const handleOpenKeySelector = async () => {
-    if ((window as any).aistudio?.openSelectKey) {
-      await (window as any).aistudio.openSelectKey();
-      setHasKey(true);
-      setError(null);
+    try {
+      if ((window as any).aistudio?.openSelectKey) {
+        await (window as any).aistudio.openSelectKey();
+        setHasKey(true);
+        setError(null);
+      } else {
+        setError("AI Studio setup interface is not available in this environment.");
+      }
+    } catch (e) {
+      setError("Failed to open key selector.");
     }
   };
 
   const processFile = async (file: File) => {
-    if (!file.type.startsWith('audio/')) {
+    // Check if it's likely an audio file
+    if (!file.type.startsWith('audio/') && !file.name.match(/\.(mp3|wav|flac|m4a|ogg)$/i)) {
       setError('Please upload a valid audio file (MP3, WAV, etc).');
       return;
     }
 
-    if (!hasKey && !(process.env.API_KEY && process.env.API_KEY !== 'undefined' && process.env.API_KEY.length > 5)) {
-      handleOpenKeySelector();
-      return;
+    const envKey = process.env?.API_KEY;
+    const isKeyReady = hasKey || (!!envKey && envKey !== 'undefined' && envKey.length > 5);
+
+    if (!isKeyReady) {
+      await handleOpenKeySelector();
+      // If after prompt we still don't have it, stop
+      const nowSelected = (window as any).aistudio?.hasSelectedApiKey ? await (window as any).aistudio.hasSelectedApiKey() : false;
+      if (!nowSelected && (!envKey || envKey === 'undefined')) {
+        setError("An API key is required to process audio.");
+        return;
+      }
     }
 
     setState(prev => ({ ...prev, processing: true, audioFile: file }));
@@ -67,13 +106,14 @@ const App: React.FC = () => {
 
     try {
       const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve) => {
+      const base64Promise = new Promise<string>((resolve, reject) => {
         reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = () => reject(new Error("Failed to read file"));
       });
       reader.readAsDataURL(file);
       const audioBase64 = await base64Promise;
 
-      const metadata = await gemini.processAudio(audioBase64, file.type);
+      const metadata = await gemini.processAudio(audioBase64, file.type || 'audio/mpeg');
       const bgImage = await gemini.generateBackgroundImage(`Cinematic atmospheric visualization of ${metadata.imagePrompt}`);
 
       setState(prev => ({
@@ -84,10 +124,12 @@ const App: React.FC = () => {
         processing: false
       }));
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Processing failed. Please check your API key quota.');
+      console.error("Processing Error:", err);
+      setError(err.message || 'Processing failed. Check your internet connection.');
       setState(prev => ({ ...prev, processing: false }));
-      if (err.message?.includes("API_KEY") || err.message?.includes("key")) {
+      
+      // If error looks like a key issue, reset the key state
+      if (err.message?.toLowerCase().includes("api_key") || err.message?.toLowerCase().includes("key")) {
         setHasKey(false);
       }
     }
@@ -95,16 +137,19 @@ const App: React.FC = () => {
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragging(true);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragging(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) processFile(file);
@@ -150,7 +195,7 @@ const App: React.FC = () => {
         <div className="flex items-center gap-4">
            <button onClick={handleOpenKeySelector} className={`glass px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${!hasKey ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400 animate-pulse' : 'text-white/40'}`}>
              <Key className="w-3.5 h-3.5" />
-             {hasKey ? 'Engine Online' : 'Connect AI Engine'}
+             {hasKey ? 'Engine Connected' : 'Connect Engine'}
            </button>
            {!state.isPro && (
              <button onClick={() => setShowSubModal(true)} className="bg-white text-black px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition shadow-lg">Go Pro</button>
@@ -164,7 +209,7 @@ const App: React.FC = () => {
             Audio to <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-600">Cinematic</span>
           </h1>
           <p className="text-lg text-white/40 max-w-xl mx-auto font-medium">
-            Drop your track to generate 4K visualizers and AI-synced lyrics instantly.
+            Generate 4K visualizers and AI-synced lyrics instantly.
           </p>
         </div>
 
@@ -173,8 +218,8 @@ const App: React.FC = () => {
             <div className="glass rounded-[4rem] p-24 flex flex-col items-center gap-8 border-cyan-500/20 shadow-2xl animate-in fade-in zoom-in duration-500">
               <Loader2 className="w-20 h-20 text-cyan-500 animate-spin" />
               <div className="space-y-2">
-                <p className="text-2xl font-black font-heading uppercase tracking-tight">Syncing Visuals...</p>
-                <p className="text-[10px] text-white/20 uppercase tracking-[0.3em] font-black">Analyzing Audio Waves</p>
+                <p className="text-2xl font-black font-heading uppercase tracking-tight">Processing Audio...</p>
+                <p className="text-[10px] text-white/20 uppercase tracking-[0.3em] font-black">AI is listening to your track</p>
               </div>
             </div>
           ) : (
@@ -190,8 +235,8 @@ const App: React.FC = () => {
                   <Upload className={`w-10 h-10 transition-colors ${isDragging ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'}`} />
                 </div>
                 <div className="space-y-2">
-                  <p className="text-4xl font-black font-heading tracking-tight">{isDragging ? 'Drop it here' : 'Drop Your Track'}</p>
-                  <p className="text-[10px] text-white/20 uppercase tracking-[0.5em] font-black">MP3, WAV, FLAC, M4A SUPPORTED</p>
+                  <p className="text-4xl font-black font-heading tracking-tight">{isDragging ? 'Release to Start' : 'Select Audio'}</p>
+                  <p className="text-[10px] text-white/20 uppercase tracking-[0.5em] font-black">MP3, WAV, FLAC, M4A</p>
                 </div>
                 {isDragging && <div className="absolute inset-0 bg-cyan-500/5 pointer-events-none animate-pulse" />}
               </div>
@@ -201,8 +246,8 @@ const App: React.FC = () => {
           {error && (
             <div className="mt-8 glass px-8 py-6 rounded-[2rem] border-red-500/30 bg-red-500/10 text-red-400 text-sm font-bold flex flex-col items-center gap-4 animate-in fade-in slide-in-from-top-4">
               <div className="flex items-center gap-3 text-center"><AlertCircle className="w-5 h-5 shrink-0" /> {error}</div>
-              {error.includes("API") && (
-                <button onClick={handleOpenKeySelector} className="bg-red-500/20 px-6 py-2 rounded-xl text-[10px] uppercase tracking-widest hover:bg-red-500/30 transition shadow-lg">Reconnect Key</button>
+              {(error.includes("API") || error.includes("key")) && (
+                <button onClick={handleOpenKeySelector} className="bg-red-500/20 px-6 py-2 rounded-xl text-[10px] uppercase tracking-widest hover:bg-red-500/30 transition shadow-lg">Set API Key</button>
               )}
             </div>
           )}
@@ -211,7 +256,7 @@ const App: React.FC = () => {
       
       <footer className="w-full max-w-7xl flex justify-between items-center py-12 opacity-30 text-[9px] font-black uppercase tracking-[0.4em]">
         <div className="flex items-center gap-8"><span>Privacy</span><span>Terms</span><span>Help</span></div>
-        <div className="flex items-center gap-3 font-heading"><Youtube className="w-4 h-4" /><span>ChromaBeat Studio 2025</span></div>
+        <div className="flex items-center gap-3 font-heading"><Youtube className="w-4 h-4" /><span>ChromaBeat Studio v4.1</span></div>
       </footer>
 
       <SubscriptionModal isOpen={showSubModal} onClose={() => setShowSubModal(false)} onSuccess={() => setState(prev => ({ ...prev, isPro: true }))} />

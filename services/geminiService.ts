@@ -4,11 +4,10 @@ import { AudioMetadata } from "../types.ts";
 
 export class GeminiService {
   private getAI() {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey || apiKey === 'undefined') {
-      throw new Error("API_KEY_MISSING: Please select a valid Google Gemini API key using the setup button.");
+    const apiKey = process.env?.API_KEY;
+    if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+      throw new Error("API_KEY_MISSING: No valid Google Gemini API key found. Use the 'Connect Engine' button.");
     }
-    // Create new instance per guidelines to ensure latest key is used
     return new GoogleGenAI({ apiKey });
   }
 
@@ -22,8 +21,9 @@ export class GeminiService {
       });
       return result;
     } catch (error: any) {
-      if (error.message?.includes("entity was not found") || error.message?.includes("key")) {
-        throw new Error("API_KEY_INVALID: Please select a paid API key with billing enabled.");
+      console.error("Gemini API Error:", error);
+      if (error.message?.includes("entity was not found") || error.message?.toLowerCase().includes("key")) {
+        throw new Error("API_KEY_INVALID: Your Gemini API key is invalid or lacks billing permissions.");
       }
       throw error;
     }
@@ -63,7 +63,12 @@ export class GeminiService {
         }
       }
     });
-    return JSON.parse(response.text);
+    
+    try {
+      return JSON.parse(response.text || "{}");
+    } catch (e) {
+      throw new Error("AI returned an unreadable response format.");
+    }
   }
 
   async generateBackgroundVideo(prompt: string, onProgress?: (msg: string) => void): Promise<string> {
@@ -83,7 +88,7 @@ export class GeminiService {
       }
 
       const link = operation.response?.generatedVideos?.[0]?.video?.uri;
-      const res = await fetch(`${link}&key=${process.env.API_KEY}`);
+      const res = await fetch(`${link}&key=${process.env?.API_KEY}`);
       const blob = await res.blob();
       return URL.createObjectURL(blob);
     } catch (e: any) {
@@ -97,7 +102,7 @@ export class GeminiService {
       contents: { parts: [{ text: `Digital Art, High Contrast, 8K: ${prompt}` }] },
       config: { imageConfig: { aspectRatio: "16:9", imageSize: "1K" } }
     });
-    for (const part of response.candidates[0].content.parts) {
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
     }
     throw new Error("Visual Synthesis Failed.");
