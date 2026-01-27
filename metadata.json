@@ -1,7 +1,8 @@
 {
   "name": "ChromaBeat",
-  "description": "Transform your audio into stunning visual experiences with AI-generated lyrics, background art, and dynamic beat-synced visualizers.",
+  "description": "Professional AI Audio-to-Video Studio with synced lyrics and cinematic visualizers.",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "geolocation"
   ]
 }

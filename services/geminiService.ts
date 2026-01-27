@@ -1,53 +1,41 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { AudioMetadata } from "../types";
+import { AudioMetadata } from "../types.ts";
 
 export class GeminiService {
   private getAI() {
     const apiKey = process.env.API_KEY;
     if (!apiKey || apiKey === 'undefined') {
-      throw new Error("MISSING_API_KEY: Please connect your Google Gemini API key via the settings icon.");
+      throw new Error("API_KEY_MISSING: Please select a valid Google Gemini API key using the setup button.");
     }
-    // Create fresh instance as per guidelines for Veo/Pro models
+    // Create new instance per guidelines to ensure latest key is used
     return new GoogleGenAI({ apiKey });
-  }
-
-  private async handleApiError(error: any) {
-    console.error("Gemini API Error Detail:", error);
-    const message = error.message || "";
-    
-    // Check for specific error patterns as per guidelines
-    if (message.includes("Requested entity was not found") || message.includes("404") || message.includes("permission")) {
-      // These usually indicate key/project selection issues
-      throw new Error("API_SELECTION_REQUIRED: Please select a valid, billing-enabled API key from Google AI Studio.");
-    }
-    throw error;
   }
 
   private async callModel(params: any) {
     try {
       const ai = this.getAI();
-      const modelName = params.model || "gemini-3-pro-preview";
       const result = await ai.models.generateContent({
-        model: modelName,
+        model: params.model || "gemini-3-pro-preview",
         contents: params.contents,
         config: params.config
       });
       return result;
     } catch (error: any) {
-      await this.handleApiError(error);
+      if (error.message?.includes("entity was not found") || error.message?.includes("key")) {
+        throw new Error("API_KEY_INVALID: Please select a paid API key with billing enabled.");
+      }
       throw error;
     }
   }
 
   async processAudio(audioBase64: string, mimeType: string): Promise<AudioMetadata> {
     const response = await this.callModel({
-      model: "gemini-3-pro-preview",
       contents: [
         {
           parts: [
             { inlineData: { data: audioBase64, mimeType: mimeType } },
-            { text: `Analyze this audio for video production. Provide: 1. Accurate lyrics with decimal timestamps. 2. Emotional mood. 3. Title/Artist. 4. A 4K cinematic visual prompt. Return JSON.` }
+            { text: `Extract lyrics with decimal timestamps, emotional mood, and title. Suggest a high-quality 4K visual prompt based on the song's context. Return JSON.` }
           ]
         }
       ],
@@ -68,12 +56,10 @@ export class GeminiService {
                   text: { type: Type.STRING },
                   start: { type: Type.NUMBER },
                   end: { type: Type.NUMBER }
-                },
-                required: ["text", "start", "end"]
+                }
               }
             }
-          },
-          required: ["title", "artist", "mood", "imagePrompt", "transcription"]
+          }
         }
       }
     });
@@ -81,52 +67,40 @@ export class GeminiService {
   }
 
   async generateBackgroundVideo(prompt: string, onProgress?: (msg: string) => void): Promise<string> {
-    onProgress?.("Initializing AI Engine...");
-    
+    onProgress?.("Initiating Veo Engine...");
     try {
       const ai = this.getAI();
       let operation = await ai.models.generateVideos({
         model: 'veo-3.1-fast-generate-preview',
-        prompt: `Cinematic loop: ${prompt}`,
-        config: {
-          numberOfVideos: 1,
-          resolution: '720p',
-          aspectRatio: '16:9'
-        }
+        prompt: `Cinematic landscape, 4K, slow motion: ${prompt}`,
+        config: { resolution: '720p', aspectRatio: '16:9', numberOfVideos: 1 }
       });
 
-      const phases = ["Analyzing...", "Rendering...", "Lighting...", "Finalizing..."];
-      let i = 0;
-
       while (!operation.done) {
-        onProgress?.(phases[i % phases.length]);
-        i++;
-        await new Promise(resolve => setTimeout(resolve, 10000));
+        onProgress?.("Rendering Cinematic Motion...");
+        await new Promise(r => setTimeout(r, 8000));
         operation = await ai.operations.getVideosOperation({ operation: operation });
       }
 
-      const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-      if (!downloadLink) throw new Error("Video generation failed: No URL returned.");
-      
-      const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
-      const blob = await response.blob();
+      const link = operation.response?.generatedVideos?.[0]?.video?.uri;
+      const res = await fetch(`${link}&key=${process.env.API_KEY}`);
+      const blob = await res.blob();
       return URL.createObjectURL(blob);
-    } catch (error: any) {
-      await this.handleApiError(error);
-      throw error;
+    } catch (e: any) {
+      throw new Error(`Veo Generation Failed: ${e.message}`);
     }
   }
 
   async generateBackgroundImage(prompt: string): Promise<string> {
     const response = await this.callModel({
       model: 'gemini-3-pro-image-preview',
-      contents: { parts: [{ text: `Cinematic 8k: ${prompt}` }] },
+      contents: { parts: [{ text: `Digital Art, High Contrast, 8K: ${prompt}` }] },
       config: { imageConfig: { aspectRatio: "16:9", imageSize: "1K" } }
     });
     for (const part of response.candidates[0].content.parts) {
       if (part.inlineData) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
     }
-    throw new Error("Failed to generate art.");
+    throw new Error("Visual Synthesis Failed.");
   }
 }
 
