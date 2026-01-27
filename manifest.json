@@ -1,8 +1,8 @@
 
 {
-  "name": "SonicVisualizer AI",
-  "short_name": "SonicAI",
-  "description": "Professional Audio-to-Video Studio with AI-generated lyrics and visualizers.",
+  "name": "ChromaBeat AI",
+  "short_name": "ChromaBeat",
+  "description": "Professional AI Audio-to-Video Studio with synced lyrics and visualizers.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#050505",

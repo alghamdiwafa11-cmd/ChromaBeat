@@ -2,6 +2,7 @@
 export type VisualizerMode = 'bars' | 'waves' | 'circle' | 'particles' | 'symmetry' | 'grid';
 export type ExportQuality = '720p' | '1080p' | '2K' | '4K' | '5K';
 export type AspectRatio = '16:9' | '9:16' | '1:1';
+export type VisualStyle = 'photorealistic' | 'anime' | 'cyberpunk' | 'oil-painting' | '3d-render' | 'minimalist';
 
 export interface VisualizerSettings {
   mode: VisualizerMode;
@@ -20,6 +21,7 @@ export interface VisualizerSettings {
   lyricsSize: number;
   blur: number;
   aspectRatio: AspectRatio;
+  visualStyle: VisualStyle;
 }
 
 export interface TranscriptionSegment {
