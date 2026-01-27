@@ -19,12 +19,12 @@
     <script src="https://www.paypal.com/sdk/js?client-id=AcHOUYdrztf_ekV7ZQDHH26lwqrOdo34L-r6hHsIzagGTtxqXIESroaRuu4tMKMZx-4ge-sVAAF_y3R1&currency=USD" async></script>
 
     <script>
-      // Safe initialization: Do NOT overwrite if process or env already exist
-      window.process = window.process || {};
+      // Safe initialization of process.env for browser environments
+      window.process = window.process || { env: {} };
       window.process.env = window.process.env || {};
       
       window.onerror = function(message, source, lineno, colno, error) {
-        console.error("ChromaBeat Runtime Error:", { message, source, lineno, colno, error });
+        console.warn("Caught Error:", { message, source, lineno, colno, error });
         return false;
       };
     </script>
