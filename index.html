@@ -19,13 +19,12 @@
     <script src="https://www.paypal.com/sdk/js?client-id=AcHOUYdrztf_ekV7ZQDHH26lwqrOdo34L-r6hHsIzagGTtxqXIESroaRuu4tMKMZx-4ge-sVAAF_y3R1&currency=USD" async></script>
 
     <script>
-      // Crucial: Initialize process.env before any modules load
-      window.process = { env: {} };
+      // Safe initialization: Do NOT overwrite if process or env already exist
+      window.process = window.process || {};
+      window.process.env = window.process.env || {};
       
-      // Global error listener for "Script error" debugging
       window.onerror = function(message, source, lineno, colno, error) {
-        console.error("Global Error Caught:", { message, source, lineno, colno, error });
-        // Don't alert for every error, but log it clearly
+        console.error("ChromaBeat Runtime Error:", { message, source, lineno, colno, error });
         return false;
       };
     </script>

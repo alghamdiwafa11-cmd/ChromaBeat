@@ -40,21 +40,26 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showSubModal, setShowSubModal] = useState(false);
 
+  // Helper to check for key without state lag
+  const getActiveKey = () => {
+    const envKey = (window as any).process?.env?.API_KEY || process.env?.API_KEY;
+    return (!!envKey && envKey !== 'undefined' && envKey !== 'null' && envKey.length > 5);
+  };
+
   useEffect(() => {
     const checkKey = async () => {
-      const envKey = (window as any).process?.env?.API_KEY;
-      const isEnvSet = !!envKey && envKey !== 'undefined' && envKey.length > 5;
+      const envKeySet = getActiveKey();
       
-      let isSelected = false;
+      let isSelectedInBridge = false;
       try {
         if ((window as any).aistudio?.hasSelectedApiKey) {
-          isSelected = await (window as any).aistudio.hasSelectedApiKey();
+          isSelectedInBridge = await (window as any).aistudio.hasSelectedApiKey();
         }
       } catch (e) {
-        console.warn("AI Studio bridge check failed", e);
+        // Fallback for non-AI Studio environments
       }
       
-      setHasKey(isEnvSet || isSelected);
+      setHasKey(envKeySet || isSelectedInBridge);
     };
     checkKey();
   }, []);
@@ -67,36 +72,42 @@ const App: React.FC = () => {
   }, [state.isPro, state.videosProduced]);
 
   const handleOpenKeySelector = async () => {
+    if (getActiveKey()) {
+      setHasKey(true);
+      return true;
+    }
+
     try {
       if ((window as any).aistudio?.openSelectKey) {
         await (window as any).aistudio.openSelectKey();
-        // RULE: Assume success after opening key selector
         setHasKey(true);
         setError(null);
         return true;
       } else {
-        setError("AI Studio key selector is not available.");
-        return false;
+        // Only error if we literally have no other way to get a key
+        if (!getActiveKey()) {
+          setError("API Key Required: Please ensure your environment variables are set or you are in a supported AI Studio environment.");
+          return false;
+        }
+        return true;
       }
     } catch (e) {
-      setError("Failed to open key selector.");
+      setError("Failed to initialize AI connection.");
       return false;
     }
   };
 
   const processFile = async (file: File) => {
     if (!file.type.startsWith('audio/') && !file.name.match(/\.(mp3|wav|flac|m4a|ogg)$/i)) {
-      setError('Please upload a valid audio file (MP3, WAV, etc).');
+      setError('Unsupported file type. Please use MP3, WAV, or FLAC.');
       return;
     }
 
-    const envKey = (window as any).process?.env?.API_KEY;
-    const isKeyReady = hasKey || (!!envKey && envKey !== 'undefined' && envKey.length > 5);
+    const isKeyReady = hasKey || getActiveKey();
 
     if (!isKeyReady) {
-      const opened = await handleOpenKeySelector();
-      if (!opened) return;
-      // We proceed immediately assuming success to avoid race condition
+      const success = await handleOpenKeySelector();
+      if (!success) return;
     }
 
     setState(prev => ({ ...prev, processing: true, audioFile: file }));
@@ -106,14 +117,13 @@ const App: React.FC = () => {
       const reader = new FileReader();
       const base64Promise = new Promise<string>((resolve, reject) => {
         reader.onload = () => resolve((reader.result as string).split(',')[1]);
-        reader.onerror = () => reject(new Error("Failed to read audio file."));
+        reader.onerror = () => reject(new Error("File read error."));
       });
       reader.readAsDataURL(file);
       const audioBase64 = await base64Promise;
 
-      // Note: We use the most recent key implicitly through the SDK
       const metadata = await gemini.processAudio(audioBase64, file.type || 'audio/mpeg');
-      const bgImage = await gemini.generateBackgroundImage(`Cinematic visualization of ${metadata.imagePrompt}`);
+      const bgImage = await gemini.generateBackgroundImage(`Cinematic atmospheric visual: ${metadata.imagePrompt}`);
 
       setState(prev => ({
         ...prev,
@@ -123,11 +133,11 @@ const App: React.FC = () => {
         processing: false
       }));
     } catch (err: any) {
-      console.error("Processing Error:", err);
+      console.error("Processing Pipeline Error:", err);
       let message = err.message || 'Processing failed.';
       
-      if (message.includes("entity was not found") || message.toLowerCase().includes("key")) {
-        message = "API Key Error: Please ensure you have selected a valid API key with billing enabled.";
+      if (message.includes("403") || message.includes("401") || message.toLowerCase().includes("key")) {
+        message = "Authentication Error: The API key provided is invalid or has expired.";
         setHasKey(false);
       }
       
@@ -138,19 +148,16 @@ const App: React.FC = () => {
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDragging(true);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDragging(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) processFile(file);
@@ -185,7 +192,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#050505] flex flex-col items-center p-6 transition-colors duration-500">
+    <div className="min-h-screen bg-[#050505] flex flex-col items-center p-6 transition-all">
       <header className="w-full max-w-7xl flex justify-between items-center py-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-cyan-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
@@ -194,9 +201,9 @@ const App: React.FC = () => {
           <span className="text-xl font-black font-heading tracking-tighter uppercase">ChromaBeat</span>
         </div>
         <div className="flex items-center gap-4">
-           <button onClick={handleOpenKeySelector} className={`glass px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${!hasKey ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400 animate-pulse' : 'text-white/40'}`}>
+           <button onClick={handleOpenKeySelector} className={`glass px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${!hasKey ? 'text-white/40' : 'text-cyan-400'}`}>
              <Key className="w-3.5 h-3.5" />
-             {hasKey ? 'Engine Linked' : 'Link AI Engine'}
+             {hasKey ? 'AI Studio Active' : 'Setup AI Engine'}
            </button>
            {!state.isPro && (
              <button onClick={() => setShowSubModal(true)} className="bg-white text-black px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition shadow-lg">Go Pro</button>
@@ -210,17 +217,17 @@ const App: React.FC = () => {
             Audio to <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-600">Cinematic</span>
           </h1>
           <p className="text-lg text-white/40 max-w-xl mx-auto font-medium">
-            Turn any track into a high-fidelity visual experience.
+            Upload your track to generate professional visualizers with AI.
           </p>
         </div>
 
         <div className="w-full max-w-2xl relative">
           {state.processing ? (
-            <div className="glass rounded-[4rem] p-24 flex flex-col items-center gap-8 border-cyan-500/20 shadow-2xl animate-in fade-in zoom-in duration-500">
+            <div className="glass rounded-[4rem] p-24 flex flex-col items-center gap-8 border-cyan-500/20 shadow-2xl animate-in fade-in zoom-in">
               <Loader2 className="w-20 h-20 text-cyan-500 animate-spin" />
               <div className="space-y-2">
-                <p className="text-2xl font-black font-heading uppercase tracking-tight text-white">Generating Studio...</p>
-                <p className="text-[10px] text-white/20 uppercase tracking-[0.3em] font-black">AI is syncing your waves</p>
+                <p className="text-2xl font-black font-heading uppercase tracking-tight text-white">Analyzing Waves...</p>
+                <p className="text-[10px] text-white/20 uppercase tracking-[0.3em] font-black">AI is syncing your frequency</p>
               </div>
             </div>
           ) : (
@@ -228,18 +235,17 @@ const App: React.FC = () => {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              className={`cursor-pointer block group transition-all duration-500 ${isDragging ? 'scale-105' : 'scale-100'}`}
+              className={`cursor-pointer block group transition-all duration-300 ${isDragging ? 'scale-105' : 'scale-100'}`}
             >
               <input type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
-              <div className={`glass rounded-[4rem] p-28 border-2 border-dashed transition-all duration-700 flex flex-col items-center gap-10 shadow-2xl relative overflow-hidden ${isDragging ? 'border-cyan-400 bg-cyan-500/5 shadow-cyan-500/20' : 'border-white/5 group-hover:border-cyan-500/40 group-hover:bg-white/[0.04]'}`}>
-                <div className={`w-24 h-24 rounded-[2rem] bg-white/5 flex items-center justify-center transition-all duration-700 ${isDragging ? 'bg-cyan-500/20 scale-110 shadow-2xl shadow-cyan-500/30' : 'group-hover:scale-110 group-hover:shadow-2xl'}`}>
+              <div className={`glass rounded-[4rem] p-28 border-2 border-dashed transition-all duration-500 flex flex-col items-center gap-10 shadow-2xl relative overflow-hidden ${isDragging ? 'border-cyan-400 bg-cyan-500/5' : 'border-white/5 group-hover:border-cyan-500/40'}`}>
+                <div className={`w-24 h-24 rounded-[2rem] bg-white/5 flex items-center justify-center transition-all ${isDragging ? 'bg-cyan-500/20 scale-110' : 'group-hover:scale-110'}`}>
                   <Upload className={`w-10 h-10 transition-colors ${isDragging ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'}`} />
                 </div>
                 <div className="space-y-2">
-                  <p className="text-4xl font-black font-heading tracking-tight">{isDragging ? 'Release Now' : 'Upload Track'}</p>
-                  <p className="text-[10px] text-white/20 uppercase tracking-[0.5em] font-black">MP3, WAV, FLAC, M4A</p>
+                  <p className="text-4xl font-black font-heading tracking-tight">Drop Audio</p>
+                  <p className="text-[10px] text-white/20 uppercase tracking-[0.5em] font-black">MP3, WAV, FLAC</p>
                 </div>
-                {isDragging && <div className="absolute inset-0 bg-cyan-500/5 pointer-events-none animate-pulse" />}
               </div>
             </label>
           )}
@@ -247,8 +253,8 @@ const App: React.FC = () => {
           {error && (
             <div className="mt-8 glass px-8 py-6 rounded-[2rem] border-red-500/30 bg-red-500/10 text-red-400 text-sm font-bold flex flex-col items-center gap-4 animate-in fade-in slide-in-from-top-4">
               <div className="flex items-center gap-3 text-center"><AlertCircle className="w-5 h-5 shrink-0" /> {error}</div>
-              {(error.toLowerCase().includes("api") || error.toLowerCase().includes("key")) && (
-                <button onClick={handleOpenKeySelector} className="bg-red-500/20 px-6 py-2 rounded-xl text-[10px] uppercase tracking-widest hover:bg-red-500/30 transition shadow-lg">Reset AI Engine</button>
+              {error.toLowerCase().includes("key") && (
+                <button onClick={handleOpenKeySelector} className="bg-red-500/20 px-6 py-2 rounded-xl text-[10px] uppercase tracking-widest hover:bg-red-500/30 transition">Link Account</button>
               )}
             </div>
           )}
@@ -256,8 +262,8 @@ const App: React.FC = () => {
       </main>
       
       <footer className="w-full max-w-7xl flex justify-between items-center py-12 opacity-30 text-[9px] font-black uppercase tracking-[0.4em]">
-        <div className="flex items-center gap-8"><span>Privacy</span><span>Terms</span><span>Help</span></div>
-        <div className="flex items-center gap-3 font-heading"><Youtube className="w-4 h-4" /><span>ChromaBeat Studio v4.2</span></div>
+        <div className="flex items-center gap-8"><span>Privacy</span><span>Terms</span><span>Legal</span></div>
+        <div className="flex items-center gap-3 font-heading"><Youtube className="w-4 h-4" /><span>ChromaBeat Studio v4.3</span></div>
       </footer>
 
       <SubscriptionModal isOpen={showSubModal} onClose={() => setShowSubModal(false)} onSuccess={() => setState(prev => ({ ...prev, isPro: true }))} />
