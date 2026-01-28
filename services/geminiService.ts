@@ -15,19 +15,28 @@ export class GeminiService {
   }
 
   private cleanJson(text: string): string {
-    // Remove markdown code blocks if present
-    return text.replace(/```json/g, "").replace(/```/g, "").trim();
+    // Regex to find content between { and } even if surrounded by markdown blocks
+    const match = text.match(/\{[\s\S]*\}/);
+    return match ? match[0] : text.trim();
   }
 
   async processAudio(audioBase64: string, mimeType: string): Promise<AudioMetadata> {
     const ai = this.getAI();
+    // Using Gemini 3 Flash for ultra-fast processing speed
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-3-flash-preview",
       contents: [
         {
           parts: [
             { inlineData: { data: audioBase64, mimeType: mimeType } },
-            { text: `Analyze this audio file carefully. Output a raw JSON object only. Structure: { "title": string, "artist": string, "mood": string, "imagePrompt": "vivid cinematic description", "transcription": [{"text": string, "start": number, "end": number}] }. Ensure transcription timestamps are accurate based on the audio content.` }
+            { text: `Analyze this audio file. Output ONLY a valid JSON object. 
+            Schema: { 
+              "title": string, 
+              "artist": string, 
+              "mood": string, 
+              "imagePrompt": "vivid cinematic description", 
+              "transcription": [{"text": string, "start": number, "end": number}] 
+            }. Ensure timestamps are precise.` }
           ]
         }
       ],
@@ -64,7 +73,7 @@ export class GeminiService {
       return JSON.parse(cleaned);
     } catch (e) {
       console.error("AI Response Parse Error:", response.text);
-      throw new Error("AI data synthesis failed. The model returned an invalid format. Please try another track.");
+      throw new Error("AI analysis failed to format. Please try again.");
     }
   }
 
@@ -74,28 +83,26 @@ export class GeminiService {
       const ai = this.getAI();
       let operation = await ai.models.generateVideos({
         model: 'veo-3.1-fast-generate-preview',
-        prompt: `Dynamic cinematic visualization: ${prompt}`,
+        prompt: `Dynamic cinematic visualization, high detail, masterpiece: ${prompt}`,
         config: { resolution: '720p', aspectRatio: '16:9', numberOfVideos: 1 }
       });
 
       while (!operation.done) {
-        onProgress?.("Rendering cinematic sequence...");
-        await new Promise(r => setTimeout(r, 10000));
+        onProgress?.("Synthesizing cinematic pixels...");
+        await new Promise(r => setTimeout(r, 6000)); // Faster polling for better UX
         operation = await ai.operations.getVideosOperation({ operation: operation });
       }
 
       const link = operation.response?.generatedVideos?.[0]?.video?.uri;
-      if (!link) throw new Error("Video link not generated.");
+      if (!link) throw new Error("Video link generation failed.");
       
       const res = await fetch(`${link}&key=${this.getApiKey()}`);
-      if (!res.ok) throw new Error("Video download failed.");
+      if (!res.ok) throw new Error("Download server unreachable.");
       
       const blob = await res.blob();
       return URL.createObjectURL(blob);
     } catch (e: any) {
-      if (e.message?.includes("not found")) {
-        throw new Error("RE_SELECT_KEY");
-      }
+      if (e.message?.includes("not found")) throw new Error("RE_SELECT_KEY");
       throw new Error(`Visual Render Failed: ${e.message}`);
     }
   }
@@ -104,14 +111,14 @@ export class GeminiService {
     const ai = this.getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-image-preview',
-      contents: { parts: [{ text: `Masterpiece cinematic 8K digital art: ${prompt}` }] },
+      contents: { parts: [{ text: `Stunning cinematic 8K wide-angle concept art: ${prompt}` }] },
       config: { imageConfig: { aspectRatio: "16:9", imageSize: "1K" } }
     });
     
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
     }
-    throw new Error("Static visual generation failed.");
+    throw new Error("Image generation timed out.");
   }
 }
 
