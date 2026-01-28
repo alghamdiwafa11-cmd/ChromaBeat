@@ -19,14 +19,16 @@ export class GeminiService {
     return match ? match[0] : text.trim();
   }
 
-  // Robust retry mechanism for 503 and 429 errors
+  // Robust retry mechanism for 503 (Overloaded) and 429 (Rate Limit) errors
   private async callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
     try {
       return await fn();
     } catch (error: any) {
-      const isRetryable = error.message?.includes("503") || error.message?.includes("overloaded") || error.message?.includes("429");
+      const errorMsg = error.message?.toLowerCase() || "";
+      const isRetryable = errorMsg.includes("503") || errorMsg.includes("overloaded") || errorMsg.includes("429") || errorMsg.includes("unavailable");
+      
       if (isRetryable && retries > 0) {
-        console.warn(`Model busy, retrying in ${delay}ms... (${retries} attempts left)`);
+        console.warn(`AI Model busy, retrying in ${delay}ms... (${retries} attempts left)`);
         await new Promise(r => setTimeout(r, delay));
         return this.callWithRetry(fn, retries - 1, delay * 2);
       }
@@ -50,7 +52,7 @@ export class GeminiService {
                 "mood": string, 
                 "imagePrompt": "vivid cinematic description", 
                 "transcription": [{"text": string, "start": number, "end": number}] 
-              }. Ensure timestamps are precise.` }
+              }. Ensure timestamps are precise and the response is strictly JSON.` }
             ]
           }
         ],
@@ -81,7 +83,7 @@ export class GeminiService {
       });
       
       const rawText = response.text;
-      if (!rawText) throw new Error("Empty response");
+      if (!rawText) throw new Error("Empty AI response received.");
       const cleaned = this.cleanJson(rawText);
       return JSON.parse(cleaned);
     });
@@ -94,7 +96,7 @@ export class GeminiService {
     return this.callWithRetry(async () => {
       let operation = await ai.models.generateVideos({
         model: 'veo-3.1-fast-generate-preview',
-        prompt: `Masterpiece cinematic visualization, ultra high detail: ${prompt}`,
+        prompt: `Dynamic cinematic visualization, 8k resolution, artistic masterpiece: ${prompt}`,
         config: { resolution: '720p', aspectRatio: '16:9', numberOfVideos: 1 }
       });
 
@@ -108,7 +110,7 @@ export class GeminiService {
       if (!link) throw new Error("Video link generation failed.");
       
       const res = await fetch(`${link}&key=${this.getApiKey()}`);
-      if (!res.ok) throw new Error("Download server unreachable.");
+      if (!res.ok) throw new Error("Video download server unreachable.");
       
       const blob = await res.blob();
       return URL.createObjectURL(blob);
@@ -120,14 +122,14 @@ export class GeminiService {
     return this.callWithRetry(async () => {
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-image-preview',
-        contents: { parts: [{ text: `Stunning cinematic 8K wide-angle concept art: ${prompt}` }] },
+        contents: { parts: [{ text: `High-fidelity cinematic wide-angle digital art: ${prompt}` }] },
         config: { imageConfig: { aspectRatio: "16:9", imageSize: "1K" } }
       });
       
       for (const part of response.candidates?.[0]?.content?.parts || []) {
         if (part.inlineData) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
       }
-      throw new Error("Image generation failed.");
+      throw new Error("Visual generation failed.");
     });
   }
 }
