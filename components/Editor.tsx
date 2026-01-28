@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
-  Play, Pause, Download, ChevronLeft, Sparkles, Video, Camera, Type as TypeIcon, Loader2, Maximize, Smartphone, Youtube, Brush, Music, Share2, Instagram, Facebook, Palette
+  Play, Pause, Download, ChevronLeft, Sparkles, Video, Camera, Type as TypeIcon, Loader2, Maximize, Smartphone, Youtube, Brush, Music, Share2, Instagram, Facebook, Palette, Sliders
 } from 'lucide-react';
-import { AppState, VisualizerSettings, VisualStyle } from '../types.ts';
+import { AppState, VisualizerSettings } from '../types.ts';
 import { VISUALIZER_MODES, FONTS, COLOR_PALETTES, EXPORT_QUALITIES } from '../constants.tsx';
 import VisualizerCanvas from './VisualizerCanvas.tsx';
 import { gemini } from '../services/geminiService.ts';
@@ -83,13 +83,17 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
   };
 
   const startExport = async () => {
+    if (!appState.isPro && (selectedQuality === '2K' || selectedQuality === '4K')) {
+      onRequestUpgrade();
+      return;
+    }
     setIsExporting(true);
     const canvas = canvasContainerRef.current?.querySelector('canvas');
     if (!canvas || !audioRef.current) { setIsExporting(false); return; }
 
     try {
-      const stream = canvas.captureStream(60); // 60fps for pro quality
-      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9', bitsPerSecond: 8000000 });
+      const stream = canvas.captureStream(60); 
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9', bitsPerSecond: 12000000 });
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.onstop = () => {
@@ -97,7 +101,7 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `ChromaBeat_${appState.metadata?.title || 'Video'}.webm`;
+        a.download = `ChromaBeat_${appState.metadata?.title || 'Video'}_${selectedQuality}.webm`;
         a.click();
         setIsExporting(false);
         onExported();
@@ -129,6 +133,16 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
         </section>
 
         <section className="space-y-4">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2"><Sliders className="w-3 h-3 text-cyan-400" /> Audio Sensitivity</h3>
+          <div className="space-y-3">
+             <div className="flex justify-between text-[9px] font-black uppercase text-white/20"><span>Sensitivity</span><span>{settings.sensitivity}%</span></div>
+             <input type="range" min="10" max="150" value={settings.sensitivity} onChange={(e) => setSettings({...settings, sensitivity: parseInt(e.target.value)})} className="w-full accent-cyan-500" />
+             <div className="flex justify-between text-[9px] font-black uppercase text-white/20"><span>Bar Width</span><span>{settings.barWidth}x</span></div>
+             <input type="range" min="0.5" max="5.0" step="0.1" value={settings.barWidth} onChange={(e) => setSettings({...settings, barWidth: parseFloat(e.target.value)})} className="w-full accent-cyan-500" />
+          </div>
+        </section>
+
+        <section className="space-y-4">
           <h3 className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2"><TypeIcon className="w-3 h-3 text-cyan-400" /> Typography</h3>
           <select 
             value={settings.lyricsFont} 
@@ -144,7 +158,7 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
         </section>
 
         <section className="space-y-4">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2"><Maximize className="w-3 h-3 text-cyan-400" /> Format & Sync</h3>
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2"><Maximize className="w-3 h-3 text-cyan-400" /> Format & Quality</h3>
           <div className="grid grid-cols-3 gap-2">
             <button onClick={() => setSettings({...settings, aspectRatio: '16:9'})} className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition ${settings.aspectRatio === '16:9' ? 'bg-cyan-500/20 border-cyan-500 text-cyan-400' : 'bg-white/5 border-white/10 text-white/40'}`}>
               <Youtube className="w-4 h-4" /><span className="text-[8px] font-black">WIDE</span>
@@ -156,6 +170,13 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
               <Instagram className="w-4 h-4" /><span className="text-[8px] font-black">SQUARE</span>
             </button>
           </div>
+          <select 
+            value={selectedQuality} 
+            onChange={(e) => setSelectedQuality(e.target.value as any)}
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest focus:outline-none focus:border-cyan-500"
+          >
+            {EXPORT_QUALITIES.map(q => <option key={q.id} value={q.id} className="bg-black text-white">{q.label} {!appState.isPro && (q.id === '2K' || q.id === '4K') ? '(PRO)' : ''}</option>)}
+          </select>
         </section>
 
         <section className="space-y-4">
@@ -163,11 +184,14 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
           <div className="flex flex-col gap-2">
             <button onClick={handleVeoGen} disabled={isGeneratingVideo} className="bg-cyan-600/20 border border-cyan-500/30 p-4 rounded-2xl flex items-center gap-4 group hover:bg-cyan-600/30 transition">
               <div className="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center">{isGeneratingVideo ? <Loader2 className="w-5 h-5 animate-spin" /> : <Video className="w-5 h-5 text-cyan-400" />}</div>
-              <div className="text-left"><p className="text-[10px] font-black uppercase tracking-wider">Generate Cinematic Video</p><p className="text-[8px] text-white/30 uppercase">Veo 3.1 Pro Engine</p></div>
+              <div className="text-left">
+                <p className="text-[10px] font-black uppercase tracking-wider">Generate Video</p>
+                <p className="text-[8px] text-white/30 uppercase">{veoProgress || 'Veo 3.1 Pro Engine'}</p>
+              </div>
             </button>
             <button onClick={handleAIVisualGen} disabled={isGeneratingImage} className="bg-white/5 border border-white/10 p-4 rounded-2xl flex items-center gap-4 group hover:bg-white/10 transition">
               <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">{isGeneratingImage ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5 text-white/60" />}</div>
-              <div className="text-left"><p className="text-[10px] font-black uppercase tracking-wider">Generate Cover Art</p><p className="text-[8px] text-white/30 uppercase">DALL-E Equivalent High-Res</p></div>
+              <div className="text-left"><p className="text-[10px] font-black uppercase tracking-wider">Generate Image</p><p className="text-[8px] text-white/30 uppercase">Cinematic 8K Prompt</p></div>
             </button>
           </div>
         </section>
@@ -175,23 +199,23 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
         <section className="pt-4 border-t border-white/5">
           <button onClick={startExport} disabled={isExporting} className="w-full bg-cyan-500 text-black font-black py-5 rounded-[2rem] flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-[0.98] transition shadow-2xl shadow-cyan-500/20">
             {isExporting ? <Loader2 className="w-6 h-6 animate-spin" /> : <Share2 className="w-6 h-6" />}
-            {isExporting ? 'MASTERING...' : 'EXPORT & SHARE'}
+            {isExporting ? 'MASTERING...' : 'EXPORT & MASTER'}
           </button>
-          <div className="mt-4 flex justify-center gap-4 text-white/20">
-             <Instagram className="w-4 h-4 hover:text-white cursor-pointer" />
-             <Facebook className="w-4 h-4 hover:text-white cursor-pointer" />
-             <Share2 className="w-4 h-4 hover:text-white cursor-pointer" />
+          <div className="mt-4 flex justify-center gap-6 text-white/20">
+             <Instagram className="w-5 h-5 hover:text-white cursor-pointer transition" />
+             <Facebook className="w-5 h-5 hover:text-white cursor-pointer transition" />
+             <Youtube className="w-5 h-5 hover:text-white cursor-pointer transition" />
           </div>
         </section>
       </aside>
 
       <main className="flex-1 relative bg-black flex flex-col">
         <div className="flex-1 relative overflow-hidden flex items-center justify-center p-12" ref={canvasContainerRef}>
-          <div className={`relative shadow-[0_0_100px_rgba(0,0,0,0.5)] rounded-[3rem] overflow-hidden border border-white/5 bg-[#080808] transition-all duration-700 ${settings.aspectRatio === '9:16' ? 'h-full aspect-[9/16]' : settings.aspectRatio === '1:1' ? 'h-full aspect-square' : 'w-full aspect-video'}`}>
+          <div className={`relative shadow-[0_0_120px_rgba(0,0,0,0.8)] rounded-[3rem] overflow-hidden border border-white/5 bg-[#080808] transition-all duration-700 ${settings.aspectRatio === '9:16' ? 'h-full aspect-[9/16]' : settings.aspectRatio === '1:1' ? 'h-full aspect-square' : 'w-full aspect-video'}`}>
             <VisualizerCanvas analyser={analyserRef.current} settings={settings} backgroundImage={appState.backgroundImage} backgroundVideoUrl={appState.backgroundVideoUrl} />
             {settings.showLyrics && currentLyrics && (
-              <div className="absolute bottom-24 left-0 right-0 text-center px-16 pointer-events-none drop-shadow-2xl">
-                 <p style={{ fontFamily: settings.lyricsFont, fontSize: `${settings.lyricsSize}px`, color: settings.lyricsColor }} className="font-black animate-in fade-in slide-in-from-bottom-4 drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)] leading-tight">{currentLyrics}</p>
+              <div className="absolute bottom-24 left-0 right-0 text-center px-16 pointer-events-none">
+                 <p style={{ fontFamily: settings.lyricsFont, fontSize: `${settings.lyricsSize}px`, color: settings.lyricsColor }} className="font-black animate-in fade-in slide-in-from-bottom-4 drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)] leading-tight">{currentLyrics}</p>
               </div>
             )}
             <div className="absolute top-12 left-12 glass px-6 py-4 rounded-[2rem] flex items-center gap-4">
@@ -209,7 +233,7 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
              </div>
              <div className="flex justify-between text-[10px] font-black text-white/30 tracking-widest uppercase">
                <span>{Math.floor(currentTime / 60)}:{String(Math.floor(currentTime % 60)).padStart(2, '0')}</span>
-               <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" /> AI BEAT ANALYZER ACTIVE</div>
+               <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" /> AI BEAT SYNC ACTIVE</div>
                <span>{Math.floor(duration / 60)}:{String(Math.floor(duration % 60)).padStart(2, '0')}</span>
              </div>
           </div>
