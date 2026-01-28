@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
-  Play, Pause, Download, ChevronLeft, Sparkles, Video, Camera, Type as TypeIcon, Loader2, Maximize, Smartphone, Youtube, Brush, Music, Share2, Instagram, Facebook, Palette, Sliders, Edit3, Image as ImageIcon, Check, Star
+  Play, Pause, Download, ChevronLeft, Sparkles, Video, Camera, Type as TypeIcon, Loader2, Maximize, Smartphone, Youtube, Brush, Music, Share2, Instagram, Facebook, Palette, Sliders, Edit3, Image as ImageIcon, Check, Star, Lock
 } from 'lucide-react';
 import { AppState, VisualizerSettings } from '../types.ts';
 import { VISUALIZER_MODES, FONTS, COLOR_PALETTES, EXPORT_QUALITIES, FILTERS } from '../constants.tsx';
@@ -26,7 +26,6 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
   const [veoProgress, setVeoProgress] = useState("");
   const [selectedQuality, setSelectedQuality] = useState(EXPORT_QUALITIES[1].id);
   
-  // Local metadata overrides
   const [customMetadata, setCustomMetadata] = useState({
     title: appState.metadata?.title || "Unknown Track",
     artist: appState.metadata?.artist || "Unknown Artist"
@@ -43,31 +42,44 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
   const audioRef = useRef<HTMLAudioElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     onMetadataUpdate(customMetadata.title, customMetadata.artist);
-  }, [customMetadata]);
+  }, [customMetadata, onMetadataUpdate]);
 
   useEffect(() => {
     if (appState.audioUrl && !audioContextRef.current) {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      audioContextRef.current = new AudioContextClass();
-      analyserRef.current = audioContextRef.current.createAnalyser();
-      analyserRef.current.fftSize = 256;
+      const ctx = new AudioContextClass();
+      audioContextRef.current = ctx;
+      
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyserRef.current = analyser;
+      
       if (audioRef.current) {
-        const source = audioContextRef.current.createMediaElementSource(audioRef.current);
-        source.connect(analyserRef.current);
-        analyserRef.current.connect(audioContextRef.current.destination);
+        const source = ctx.createMediaElementSource(audioRef.current);
+        audioSourceRef.current = source;
+        source.connect(analyser);
+        analyser.connect(ctx.destination);
       }
     }
+    
+    return () => {
+      // AudioContext cleanup if needed
+    };
   }, [appState.audioUrl]);
 
   const togglePlay = () => {
     if (audioRef.current) {
-      if (isPlaying) audioRef.current.pause();
-      else {
-        audioContextRef.current?.resume();
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        if (audioContextRef.current?.state === 'suspended') {
+          audioContextRef.current.resume();
+        }
         audioRef.current.play();
       }
       setIsPlaying(!isPlaying);
@@ -98,13 +110,44 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
       onRequestUpgrade();
       return;
     }
+    
     setIsExporting(true);
     const canvas = canvasContainerRef.current?.querySelector('canvas');
-    if (!canvas || !audioRef.current) { setIsExporting(false); return; }
+    if (!canvas || !audioRef.current || !audioContextRef.current || !audioSourceRef.current) {
+      setIsExporting(false); 
+      return; 
+    }
 
     try {
-      const stream = canvas.captureStream(60); 
-      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9', bitsPerSecond: 18000000 });
+      // Ensure audio is at start for recording
+      audioRef.current.currentTime = 0;
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+      audioRef.current.play();
+      setIsPlaying(true);
+
+      // Create a destination for the recording stream
+      const audioCtx = audioContextRef.current;
+      const dest = audioCtx.createMediaStreamDestination();
+      
+      // Connect source to destination as well as output
+      audioSourceRef.current.connect(dest);
+
+      const canvasStream = canvas.captureStream(60); 
+      const audioStream = dest.stream;
+
+      // Combine Video and Audio tracks
+      const combinedStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...audioStream.getAudioTracks()
+      ]);
+
+      const recorder = new MediaRecorder(combinedStream, { 
+        mimeType: 'video/webm;codecs=vp9', 
+        bitsPerSecond: 18000000 
+      });
+
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.onstop = () => {
@@ -114,12 +157,33 @@ const Editor: React.FC<EditorProps> = ({ appState, onBack, onExported, onUpdateB
         a.href = url;
         a.download = `ChromaBeat_${customMetadata.title.replace(/\s+/g, '_')}_${selectedQuality}.webm`;
         a.click();
+        
+        // Cleanup connections
+        audioSourceRef.current?.disconnect(dest);
         setIsExporting(false);
         onExported();
       };
+
       recorder.start();
-      setTimeout(() => recorder.stop(), (audioRef.current.duration * 1000) + 1000);
-    } catch (err) { setIsExporting(false); }
+      
+      // Stop recorder when audio ends
+      audioRef.current.onended = () => {
+        recorder.stop();
+        setIsPlaying(false);
+        audioRef.current!.onended = null;
+      };
+
+      // Safety timeout based on duration
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+      }, (audioRef.current.duration * 1000) + 2000);
+
+    } catch (err) { 
+      console.error("Export Error:", err);
+      setIsExporting(false); 
+    }
   };
 
   const currentLyrics = useMemo(() => {
